@@ -4,6 +4,18 @@
 
 An Android app for people on a road construction site (foremen, site engineers, surveyors, lab staff): **where am I on the road?**
 
+<p>
+  <img src="docs/screenshots/1-position.png" width="190" alt="Chainage, offset and design elevation by GPS">
+  <img src="docs/screenshots/2-import.png" width="190" alt="Importing a DXF axis: coordinate system, chainage, line roles">
+  <img src="docs/screenshots/3-note.png" width="190" alt="Field note: defect with status, ready-made phrases and photos">
+  <img src="docs/screenshots/4-find-note.png" width="190" alt="Finding a note again: distance and direction along the road">
+  <img src="docs/screenshots/5-languages.png" width="190" alt="Twelve interface languages">
+</p>
+
+*Screenshots: a made-up "Demo road" (axis along a rural road from OpenStreetMap, synthetic profile and cross-sections).*
+
+**Download:** the latest APK is on the [Releases](../../releases/latest) page.
+
 - **Chainage and offset.** It shows the station (PK) and the offset from the road axis at your GPS position, or at a point tapped on the map.
 - **Design and ground level.** Where the project data allows, it shows the design level, the ground level, or both with a switch. The levels come from the longitudinal profile, the cross-sections (interpolated between them) and the terrain model.
 - **Project data in.** It reads DXF, LandXML and CSV, and cross-sections / profiles from PDF drawings: vector line picking, axis scales read from the sheet numbers, or scans traced by hand. It also reads geo-referenced images, MBTiles and PMTiles. It works with local coordinate systems, Stereo 70 and MOLDREF99 among them.
@@ -44,6 +56,8 @@ Copyright © 2026 VENTURERIDERUA
 # ROAD-GPS (українською)
 
 Програма для Android для людей на будівництві дороги (виконроби, інженери, геодезисти, лабораторія): **де я на трасі?**
+
+Знімки екрана — вгорі сторінки (вигадана «Demo road»). **Скачати:** свіжий APK — на сторінці [Releases](../../releases/latest).
 
 - **ПК і зміщення.** Показує ПК+плюс і зміщення від осі там, де ви стоїте (GPS) або де торкнулися карти.
 - **Проєктна відмітка й відмітка землі.** Коли проєкт це дає, показує проєктну відмітку, відмітку землі або обидві з перемикачем. Відмітки беруться з поздовжнього профілю, поперечників (з інтерполяцією між ними) і ЦММ.
