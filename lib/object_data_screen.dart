@@ -59,6 +59,22 @@ class _ObjectDataScreenState extends State<ObjectDataScreen> {
     if (mounted) setState(() => _maps = m);
   }
 
+  /// «Прибрати» дані об'єкта — лише після «Так»: поперечники могли обводитись годинами, а повернути нічим.
+  Future<bool> _confirmRemove(String what) async {
+    final yes = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: Text(t('Прибрати {what}?', {'what': what})),
+        content: const T('Повернути не можна — лише додати знову з файлу.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c, false), child: const T('Ні')),
+          FilledButton(onPressed: () => Navigator.pop(c, true), child: const T('Прибрати')),
+        ],
+      ),
+    );
+    return yes == true;
+  }
+
   Future<void> _removeMap(Basemap m) async {
     final yes = await showDialog<bool>(
       context: context,
@@ -145,13 +161,17 @@ class _ObjectDataScreenState extends State<ObjectDataScreen> {
     showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (c) => AlertDialog(
-        title: const T('Завантажую карту ділянки…'),
-        content: ValueListenableBuilder<double>(
-          valueListenable: progress,
-          builder: (_, v, _) => LinearProgressIndicator(value: v == 0 ? null : v),
+      // «Назад» не закриває вікно — лише «Скасувати» (інакше в кінці закрився б сам екран).
+      builder: (c) => PopScope(
+        canPop: false,
+        child: AlertDialog(
+          title: const T('Завантажую карту ділянки…'),
+          content: ValueListenableBuilder<double>(
+            valueListenable: progress,
+            builder: (_, v, _) => LinearProgressIndicator(value: v == 0 ? null : v),
+          ),
+          actions: [TextButton(onPressed: () => cancel = true, child: const T('Скасувати'))],
         ),
-        actions: [TextButton(onPressed: () => cancel = true, child: const T('Скасувати'))],
       ),
     );
     Problem? problem;
@@ -488,6 +508,13 @@ class _ObjectDataScreenState extends State<ObjectDataScreen> {
       if (mounted) {
         setState(() => _busy = false);
         await showProblemDialog(context, e.problem);
+      }
+      return;
+    } catch (e) {
+      // Не той файл чи пошкоджений XML — сказати, а не лишити екран «зайнятим» назавжди.
+      if (mounted) {
+        setState(() => _busy = false);
+        await showProblemDialog(context, Problem(Severity.error, 'Файл не прочитався як LandXML', detail: '$e'));
       }
       return;
     }
@@ -975,7 +1002,13 @@ class _ObjectDataScreenState extends State<ObjectDataScreen> {
               OutlinedButton.icon(onPressed: _addLandXml, icon: const Icon(Icons.timeline), label: const T('З LandXML')),
               OutlinedButton.icon(onPressed: _addProfileScan, icon: const Icon(Icons.gesture), label: const T('Зі скану (PDF, JPG)')),
               if (o.profile != null)
-                TextButton(onPressed: () { o.profile = null; _save(); }, child: const T('Прибрати')),
+                TextButton(
+                    onPressed: () async {
+                      if (!await _confirmRemove(t('поздовжній профіль'))) return;
+                      o.profile = null;
+                      await _save();
+                    },
+                    child: const T('Прибрати')),
             ],
           ),
           section(
@@ -1006,6 +1039,7 @@ class _ObjectDataScreenState extends State<ObjectDataScreen> {
               if (o.surfaceSource != null)
                 TextButton(
                     onPressed: () async {
+                      if (!await _confirmRemove(t('ЦММ (поверхню)'))) return;
                       await objectStore.saveSurface(o.id, null);
                       o
                         ..surfaceSource = null
@@ -1037,7 +1071,13 @@ class _ObjectDataScreenState extends State<ObjectDataScreen> {
                   onPressed: _addSectionsCsv, icon: const Icon(Icons.table_chart), label: const T('З таблиці (CSV)')),
               OutlinedButton.icon(onPressed: _addLandXml, icon: const Icon(Icons.timeline), label: const T('З LandXML')),
               if (o.crossSections != null)
-                TextButton(onPressed: () { o.crossSections = null; _save(); }, child: const T('Прибрати')),
+                TextButton(
+                    onPressed: () async {
+                      if (!await _confirmRemove(t('поперечники з відмітками'))) return;
+                      o.crossSections = null;
+                      await _save();
+                    },
+                    child: const T('Прибрати')),
             ],
           ),
           section(
@@ -1057,6 +1097,7 @@ class _ObjectDataScreenState extends State<ObjectDataScreen> {
               if (o.sections != null)
                 TextButton(
                     onPressed: () async {
+                      if (!await _confirmRemove(t('PDF поперечників'))) return;
                       o.sections = null;
                       await objectStore.savePdf(o.id, null);
                       await _save();

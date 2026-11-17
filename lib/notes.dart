@@ -297,11 +297,53 @@ class NoteStore {
     return d;
   }
 
+  /// Скільки позначок об'єкта не прочиталось при останньому [load] (0 — усе гаразд).
+  final Map<String, int> unreadable = {};
+
+  /// Позначки об'єкта. Пошкоджена позначка не ховає решту: читаються по одній; файл, з якого щось не
+  /// прочиталось, зберігається копією `notes.json.broken-<час>`, щоб наступне збереження нічого не стерло.
+  /// Не розбирається зовсім — береться запасна копія `notes.json.bak` (попередній стан).
   Future<List<Note>> load(String objectId) async {
+    unreadable.remove(objectId);
     if (_memory) return [...?_web[objectId]];
-    final f = File('${(await _folder(objectId)).path}/notes.json');
+    final d = await _folder(objectId);
+    final f = File('${d.path}/notes.json');
     if (!await f.exists()) return [];
-    return [for (final j in jsonDecode(await f.readAsString()) as List) Note.fromJson(j as Map<String, dynamic>)];
+    final text = await f.readAsString();
+    List<dynamic>? raw;
+    try {
+      raw = jsonDecode(text) as List;
+    } catch (_) {
+      raw = null;
+    }
+    final out = <Note>[];
+    var bad = 0;
+    if (raw == null) {
+      bad = 1;
+      final bak = File('${d.path}/notes.json.bak');
+      if (await bak.exists()) {
+        try {
+          for (final j in jsonDecode(await bak.readAsString()) as List) {
+            out.add(Note.fromJson(j as Map<String, dynamic>));
+          }
+        } catch (_) {
+          // і запасна не читається — лишаються лише копії файлів
+        }
+      }
+    } else {
+      for (final j in raw) {
+        try {
+          out.add(Note.fromJson(j as Map<String, dynamic>));
+        } catch (_) {
+          bad++;
+        }
+      }
+    }
+    if (bad > 0) {
+      unreadable[objectId] = bad;
+      await f.copy('${d.path}/notes.json.broken-${DateTime.now().millisecondsSinceEpoch}');
+    }
+    return out;
   }
 
   Future<void> saveAll(String objectId, List<Note> notes) async {
@@ -311,12 +353,16 @@ class NoteStore {
     }
     final d = await _folder(objectId);
     final tmp = File('${d.path}/notes.json.tmp');
-    await tmp.writeAsString(jsonEncode([for (final n in notes) n.toJson()]));
-    await tmp.rename('${d.path}/notes.json');
+    // flush — дані справді на диску до перейменування (вимкнення живлення посеред запису не лишить порожній файл).
+    await tmp.writeAsString(jsonEncode([for (final n in notes) n.toJson()]), flush: true);
+    final cur = File('${d.path}/notes.json');
+    if (await cur.exists()) await cur.copy('${d.path}/notes.json.bak');
+    await tmp.rename(cur.path);
   }
 
   /// Файл позначки (фото чи голосовий запис).
   Future<String> addFile(String objectId, String name, Uint8List bytes) async {
+    if (!safeFileName(name)) throw ArgumentError('недопустиме ім’я файлу: $name');
     if (_memory) {
       _webPhotos['$objectId/$name'] = bytes;
       return name;
@@ -574,6 +620,11 @@ class NotesPack {
   const NotesPack(this.object, this.notes, this.files);
 }
 
+/// Ім'я файлу фото чи запису без шляху: ZIP ходить у месенджерах, і ім'я на зразок
+/// «../інший_об'єкт/notes.json» не має вийти за теку позначок.
+bool safeFileName(String n) =>
+    n.isNotEmpty && !n.contains('/') && !n.contains('\\') && !n.contains('..') && !n.contains(':');
+
 /// Прочитати експортний ZIP іншого пристрою; null — у ZIP немає позначок для програми.
 NotesPack? readNotesZip(Uint8List bytes) {
   final a = ZipDecoder().decodeBytes(bytes);
@@ -583,13 +634,16 @@ NotesPack? readNotesZip(Uint8List bytes) {
   final files = <String, Uint8List>{
     for (final f in a.files)
       if (f.isFile && (f.name.startsWith('фото/') || f.name.startsWith('аудіо/')))
-        f.name.substring(f.name.indexOf('/') + 1): Uint8List.fromList(f.content as List<int>),
+        if (f.name.substring(f.name.indexOf('/') + 1) case final name when safeFileName(name))
+          name: Uint8List.fromList(f.content as List<int>),
   };
-  return NotesPack(
-    data['object'] as String? ?? '',
-    [for (final n in data['notes'] as List) Note.fromJson(n as Map<String, dynamic>)],
-    files,
-  );
+  final notes = [for (final n in data['notes'] as List) Note.fromJson(n as Map<String, dynamic>)];
+  for (final n in notes) {
+    n.photos.removeWhere((x) => !safeFileName(x));
+    n.photosAfter.removeWhere((x) => !safeFileName(x));
+    n.audios.removeWhere((x) => !safeFileName(x));
+  }
+  return NotesPack(data['object'] as String? ?? '', notes, files);
 }
 
 class MergeResult {

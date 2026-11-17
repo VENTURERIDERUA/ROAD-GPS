@@ -101,6 +101,14 @@ List<LxAlignment> parseLandXml(Uint8List bytes) {
                   ((double.tryParse(e.getAttribute('lengthIn') ?? '') ?? 0) +
                       (double.tryParse(e.getAttribute('lengthOut') ?? '') ?? 0));
               pvis.add(Pvi(v[0], v[1], len));
+              final lin = double.tryParse(e.getAttribute('lengthIn') ?? ''),
+                  lout = double.tryParse(e.getAttribute('lengthOut') ?? '');
+              if (e.localName == 'UnsymParaCurve' && lin != null && lout != null && (lin - lout).abs() > 0.5) {
+                problems.add(Problem(Severity.warning,
+                    t('Несиметрична вертикальна крива на ПК {pk}: відмітки на ній наближені', {'pk': v[0].toStringAsFixed(1)}),
+                    detail: t('Довжини до і після вершини — {a} і {b} м; програма рахує симетричну криву {c} м.',
+                        {'a': lin.toStringAsFixed(1), 'b': lout.toStringAsFixed(1), 'c': (lin + lout).toStringAsFixed(1)})));
+              }
           }
         }
         if (pvis.length >= 2) {

@@ -496,7 +496,10 @@ class _RasterImportScreenState extends State<RasterImportScreen> {
   // ---------- Екран ----------
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      leaveGuard(dirty: () => _refs.isNotEmpty || _traces.isNotEmpty, child: Builder(builder: _content));
+
+  Widget _content(BuildContext context) {
     final err = _error;
     final title = _plan ? t('План зі скану: {f}', {'f': widget.fileName}) : t('Профіль зі скану: {f}', {'f': widget.fileName});
     if (err != null) {

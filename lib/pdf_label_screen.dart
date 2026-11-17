@@ -8,6 +8,7 @@ import 'package:pdfrx/pdfrx.dart';
 
 import 'chainage.dart';
 import 'i18n.dart';
+import 'problem_card.dart';
 import 'pdf_sections.dart';
 import 'keyboards.dart';
 
@@ -84,7 +85,10 @@ class _PdfLabelScreenState extends State<PdfLabelScreen> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      leaveGuard(dirty: () => _byPage.isNotEmpty, child: Builder(builder: _content));
+
+  Widget _content(BuildContext context) {
     final cur = parseStations(_field.text);
     final labels = _labels;
     return Scaffold(

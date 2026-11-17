@@ -24,9 +24,9 @@ void main() {
 
   test('ПК початку з підпису біля початку осі', () {
     final g = guessStart(straight, const [
-      LabelPoint('0+000', Vec(6, 8)),
-      LabelPoint('1+000', Vec(1006, 8)),
-      LabelPoint('2+000', Vec(2006, 8)),
+      LabelPoint('0+000', Vec(1, 8)),
+      LabelPoint('1+000', Vec(1001, 8)),
+      LabelPoint('2+000', Vec(2001, 8)),
       LabelPoint('Pod', Vec(500, 0)),
     ])!;
     expect(g.startStation, 0);
@@ -34,6 +34,16 @@ void main() {
     expect(g.reversed, isFalse);
     expect(g.style, ChainageStyle.km);
     expect(g.labelsUsed, 3);
+  });
+
+  test('перший підпис за 15 м від початку — ПК початку з поправкою, а не значення підпису', () {
+    // Вісь починається на ПК 0+085: підпис «0+100» стоїть за 15 м від початку, «0+200» — за 115 м.
+    final g = guessStart(straight, const [
+      LabelPoint('ПК 2+00', Vec(115, 5)),
+      LabelPoint('ПК 1+00', Vec(15, 5)),
+    ])!;
+    expect(g.startStation, 85);
+    expect(g.exact, isFalse); // вікно попросить перевірити
   });
 
   test('пікетаж іде назустріч ланцюжку — напрям розвертається', () {

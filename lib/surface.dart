@@ -45,9 +45,16 @@ class Surface {
 
   /// Файл ЦММ у пам'яті програми: 256 байт заголовка (JSON), далі числа трикутників.
   Uint8List encode() {
-    final head = utf8.encode(jsonEncode({'format': 1, 'source': source, 'n': count}));
+    // Довга назва джерела (файл і всі шари, кирилиця — 2 байти на літеру) скорочується, щоб заголовок
+    // уміщався: обрізаний JSON потім не прочитався б, і поверхня зникла б без жодного слова.
+    var src = source;
+    var head = utf8.encode(jsonEncode({'format': 1, 'source': src, 'n': count}));
+    while (head.length > 256) {
+      src = '${src.substring(0, math.max(0, src.length - (src.endsWith('…') ? 11 : 10)))}…';
+      head = utf8.encode(jsonEncode({'format': 1, 'source': src, 'n': count}));
+    }
     final out = Uint8List(256 + tri.length * 8);
-    out.setAll(0, head.length > 256 ? head.sublist(0, 256) : head);
+    out.setAll(0, head);
     for (var i = head.length; i < 256; i++) {
       out[i] = 0x20;
     }
@@ -59,14 +66,21 @@ class Surface {
   }
 
   static Surface decode(Uint8List b) {
-    final head = jsonDecode(utf8.decode(b.sublist(0, 256)).trim()) as Map<String, dynamic>;
-    final n = (head['n'] as num).toInt() * 9;
+    if (b.length < 256 || (b.length - 256) % 72 != 0) throw const FormatException('файл ЦММ пошкоджений');
+    Map<String, dynamic>? head;
+    try {
+      head = jsonDecode(utf8.decode(b.sublist(0, 256), allowMalformed: true).trim()) as Map<String, dynamic>;
+    } on FormatException {
+      // Файл з давньої версії з обрізаним заголовком: трикутники цілі — їх кількість видно з довжини файлу.
+      head = null;
+    }
+    final n = (b.length - 256) ~/ 8;
     final bd = ByteData.sublistView(b);
     final tri = Float64List(n);
     for (var i = 0; i < n; i++) {
       tri[i] = bd.getFloat64(256 + i * 8, Endian.little);
     }
-    return Surface(head['source'] as String, tri);
+    return Surface(head?['source'] as String? ?? t('ЦММ (назву джерела не прочитано)'), tri);
   }
 }
 

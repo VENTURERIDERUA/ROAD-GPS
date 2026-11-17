@@ -127,6 +127,31 @@ void main() {
     // Помилка в одній точці видно в похибці.
     final bad = [...pairs.take(3), (pairs[3].$1 + const Vec(15, 0), pairs[3].$2)];
     expect(fitCalibration(bad).residuals.reduce((a, b) => a > b ? a : b), greaterThan(5));
+    expect(cal.sideChecked, isTrue);
+    expect(cal.mirrored, isFalse);
+  });
+
+  test('калібрування: віддзеркалене креслення (X — північ) — ліво й право не міняються; точки в лінію — бік не перевірено', () {
+    final real = [const Vec(583000, 326000), const Vec(583900, 326400), const Vec(583300, 327100), const Vec(584200, 327300)];
+    // Геодезичне креслення: X — північ, Y — схід (переставлені), плюс зсув.
+    Vec local(Vec p) => Vec(p.y - 320000, p.x - 580000);
+    final pairs = [for (final p in real.take(3)) (local(p), toWgs84(stereo70, p))];
+    final cal = fitCalibration(pairs);
+    expect(cal.mirrored, isTrue);
+    expect(cal.sideChecked, isTrue);
+    expect(cal.rms, lessThan(0.05));
+    // Четверта точка (не брала участі) — на своєму місці, тобто й бік правильний.
+    final a = toWgs84(stereo70, real[3]), b = toWgs84(cal.system, local(real[3]));
+    expect(const Distance().as(LengthUnit.Meter, a, b), lessThan(0.2));
+    // Зберігається в id разом з перестановкою.
+    final again = coordSystemById(cal.system.id);
+    expect(fromWgs84(again, a).dist(local(real[3])), lessThan(0.2));
+    // Три точки на одній прямій (початок, середина, кінець прямої осі) — бік перевірити нічим.
+    final line = [const Vec(583000, 326000), const Vec(583500, 326500), const Vec(584000, 327000)];
+    final c2 = fitCalibration([for (final p in line) (local(p), toWgs84(stereo70, p))]);
+    expect(c2.sideChecked, isFalse);
+    expect(c2.mirrored, isFalse);
+    expect(fitCalibration(pairs.take(2).toList()).sideChecked, isFalse);
   });
 }
 

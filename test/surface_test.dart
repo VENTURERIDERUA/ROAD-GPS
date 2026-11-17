@@ -35,6 +35,20 @@ void main() {
     expect(back.source, 't');
     expect(back.count, 3);
     expect(back.elevationAt(const Vec(7, 1)), closeTo(z(7, 1), 1e-9));
+
+    // Довга кирилична назва джерела (файл і всі шари) — заголовок не обрізається, файл читається.
+    final longName = 'Креслення_топозйомки_ділянки.dxf: ${List.filled(20, 'Відмітки_рельєфу').join(', ')}';
+    final big = Surface(longName, s.tri);
+    final again = Surface.decode(big.encode());
+    expect(again.count, 3);
+    expect(again.source.endsWith('…'), isTrue);
+    expect(longName.startsWith(again.source.substring(0, 20)), isTrue);
+    // Файл давньої версії з обрізаним заголовком: трикутники читаються все одно.
+    final broken = big.encode();
+    broken.setAll(0, utf8.encode('{"format":1,"source":"Креслення'.padRight(256, 'ж')).sublist(0, 256));
+    final rescued = Surface.decode(broken);
+    expect(rescued.count, 3);
+    expect(rescued.elevationAt(const Vec(7, 1)), closeTo(z(7, 1), 1e-9));
   });
 
   test('LandXML: дві поверхні, «північ схід», невидима грань, проєкт першою', () {

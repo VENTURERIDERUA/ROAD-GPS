@@ -44,6 +44,8 @@ class _LandXmlImportScreenState extends State<LandXmlImportScreen> {
       _select(_axes.first);
     } on LandXmlException catch (e) {
       _error = e.problem;
+    } catch (e) {
+      _error = Problem(Severity.error, 'Файл не прочитався як LandXML', detail: '$e');
     }
   }
 

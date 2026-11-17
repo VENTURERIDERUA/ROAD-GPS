@@ -83,14 +83,14 @@ StartGuess? guessStart(List<Segment> chain, List<LabelPoint> labels, {double max
   final sorted = [...est]..sort();
   var start = sorted[sorted.length ~/ 2];
   var exact = false;
-  // Підпис біля самого початку осі — беремо його значення як є.
-  for (final p in pts) {
-    final fromStart = reversed ? al.length - p.$2 : p.$2;
-    if (fromStart.abs() < maxOffset) {
-      start = p.$1;
-      exact = true;
-      break;
-    }
+  // Підпис на самому початку осі (до 2 м) — його значення як є. Далі від початку — ні: «0+100» за 15 м
+  // від початку означає ПК початку 0+085, а не 0+100; тоді — оцінка за всіма підписами (вище) з поправкою
+  // на відстань кожного, і вікно просить перевірити.
+  double fromStart((double, double, ChainageStyle) p) => (reversed ? al.length - p.$2 : p.$2).abs();
+  final nearest = pts.reduce((a, b) => fromStart(a) <= fromStart(b) ? a : b);
+  if (fromStart(nearest) <= 2) {
+    start = nearest.$1;
+    exact = true;
   }
   if (!exact) start = start.roundToDouble();
   final kmCount = pts.where((p) => p.$3 == ChainageStyle.km).length;

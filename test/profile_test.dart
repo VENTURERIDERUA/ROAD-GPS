@@ -84,6 +84,12 @@ void main() {
       expect(r.problems.map((p) => p.title), contains('ПК відомості не збігаються з віссю'));
     });
 
+    test('CSV з лапками: кома всередині клітинки не зсуває колонки', () {
+      final t = parseCsv(b('ПК,Опис,Відмітка\n0+025,"бордюр, ліворуч","102,35"\n0+050,"сказав ""так""",101.5\n'));
+      expect(t.rows[0], ['0+025', 'бордюр, ліворуч', '102,35']);
+      expect(t.rows[1], ['0+050', 'сказав "так"', '101.5']);
+    });
+
     test('порожній файл і без колонки ПК — помилки з порадами', () {
       expect(() => parseCsv(b('\n\n')), throwsA(isA<VidomistException>()));
       final r = buildVidomist(parseCsv(b('a;b\n1;2\n')), const {}, 'v.csv');

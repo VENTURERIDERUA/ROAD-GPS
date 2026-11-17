@@ -26,6 +26,7 @@ import 'problem_card.dart';
 import 'problems.dart';
 import 'profile.dart';
 import 'road_object.dart';
+import 'screen_on.dart';
 import 'settings.dart';
 import 'surface.dart';
 import 'vibrate.dart';
@@ -63,6 +64,18 @@ class RoadHost extends StatefulWidget {
 class _RoadHostState extends State<RoadHost> {
   late RoadObject _cur = widget.start;
   RoadStart? _carry;
+
+  @override
+  void initState() {
+    super.initState();
+    keepScreenOn(true);
+  }
+
+  @override
+  void dispose() {
+    keepScreenOn(false);
+    super.dispose();
+  }
 
   void _switch(RoadObject to, RoadStart carry, {required bool auto}) {
     final from = _cur;
@@ -118,7 +131,10 @@ typedef _NearAxis = (RoadObject object, StationResult r, double dist);
 /// Показувати іншу вісь у панелі, коли до неї ближче за стільки метрів.
 const _showOtherAxis = 30.0;
 
-class _RoadScreenState extends State<RoadScreen> {
+/// Без нового визначення GPS довше — положення застаріле (на Android визначення щосекунди).
+const _staleAfter = Duration(seconds: 5);
+
+class _RoadScreenState extends State<RoadScreen> with WidgetsBindingObserver {
   late final RoadAxis _axis = widget.object.roadAxis;
   late final AxisView _view =
       AxisView.of(_axis, widget.object.crs, widget.object.style, widget.object.lines);
@@ -153,6 +169,11 @@ class _RoadScreenState extends State<RoadScreen> {
   bool _tilesFailed = false;
   LatLng? _gpsPoint;
   double? _gpsAccuracy;
+
+  /// Коли прийшло останнє визначення GPS; старіше за [_staleAfter] — положення застаріле.
+  DateTime? _gpsTime;
+  Timer? _ageTimer;
+  bool _wasStale = false;
   LatLng? _tapPoint;
 
   @override
@@ -163,6 +184,8 @@ class _RoadScreenState extends State<RoadScreen> {
       _source = s.tap ? _Source.tap : _Source.gps;
       _gpsPoint = s.gps;
       _gpsAccuracy = s.accuracy;
+      // Положення щойно з попередньої осі — свіже.
+      if (s.gps != null) _gpsTime = DateTime.now();
       _tapPoint = s.tapPoint;
       _follow = s.follow;
     }
@@ -170,27 +193,52 @@ class _RoadScreenState extends State<RoadScreen> {
     _loadNotes();
     _loadSurface();
     _startGps();
+    WidgetsBinding.instance.addObserver(this);
+    // Раз на секунду: чи не застаріло положення (і скільки секунд, поки застаріле).
+    _ageTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      final stale = _gpsStale;
+      if (mounted && (stale || stale != _wasStale)) setState(() => _wasStale = stale);
+    });
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _bg?.dispose();
     _sub?.cancel();
     _waitTimer?.cancel();
+    _ageTimer?.cancel();
     super.dispose();
   }
 
+  /// Повернулись у програму (екран гас, перемикались на іншу) — GPS заново; старе положення
+  /// тим часом показується як застаріле.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && _source == _Source.gps) _startGps();
+  }
+
+  /// Положення GPS є, але нового визначення давно не було.
+  bool get _gpsStale =>
+      _source == _Source.gps &&
+      _gpsPoint != null &&
+      (_gpsTime == null || DateTime.now().difference(_gpsTime!) > _staleAfter);
+
   Future<void> _startGps() async {
     await _sub?.cancel();
+    _sub = null;
     _waitTimer?.cancel();
+    if (!mounted) return;
     setState(() => _gpsProblem = null);
     try {
       if (!await Geolocator.isLocationServiceEnabled()) {
-        setState(() => _gpsProblem = gpsOff);
+        if (mounted) setState(() => _gpsProblem = gpsOff);
         return;
       }
       var perm = await Geolocator.checkPermission();
       if (perm == LocationPermission.denied) perm = await Geolocator.requestPermission();
+      // Екран закрили, поки питали дозвіл, — підписку на GPS не створюємо (її б ніхто не зупинив).
+      if (!mounted) return;
       if (perm == LocationPermission.denied || perm == LocationPermission.deniedForever) {
         setState(() => _gpsProblem = gpsDenied);
         return;
@@ -199,11 +247,17 @@ class _RoadScreenState extends State<RoadScreen> {
         if (mounted && _gpsPoint == null && _gpsProblem == null) setState(() => _gpsProblem = gpsWaiting);
       });
       _sub = Geolocator.getPositionStream(
-        locationSettings: const LocationSettings(accuracy: LocationAccuracy.best, distanceFilter: 0),
+        // Android без явного інтервалу дає визначення раз на 5 с — ПК відставав би на десятки метрів.
+        locationSettings: !kIsWeb && defaultTargetPlatform == TargetPlatform.android
+            ? AndroidSettings(
+                accuracy: LocationAccuracy.best, distanceFilter: 0, intervalDuration: const Duration(seconds: 1))
+            : const LocationSettings(accuracy: LocationAccuracy.best, distanceFilter: 0),
       ).listen((p) {
+        if (!mounted) return;
         setState(() {
           _gpsPoint = LatLng(p.latitude, p.longitude);
           _gpsAccuracy = p.accuracy;
+          _gpsTime = DateTime.now();
           _gpsProblem = null;
         });
         _checkNear();
@@ -216,9 +270,11 @@ class _RoadScreenState extends State<RoadScreen> {
             // Карта ще не намальована — перший кадр прийде з наступним визначенням.
           }
         }
-      }, onError: (e) => setState(() => _gpsProblem = _gpsFailed(e)));
+      }, onError: (e) {
+        if (mounted) setState(() => _gpsProblem = _gpsFailed(e));
+      });
     } catch (e) {
-      setState(() => _gpsProblem = _gpsFailed(e));
+      if (mounted) setState(() => _gpsProblem = _gpsFailed(e));
     }
   }
 
@@ -386,6 +442,12 @@ class _RoadScreenState extends State<RoadScreen> {
     ];
   }
 
+  Widget _gpsProblemCard() => ProblemCard(_gpsProblem!, actions: [
+        if (_gpsProblem == gpsOff) (t('Налаштування геолокації'), () => Geolocator.openLocationSettings()),
+        if (_gpsProblem == gpsDenied) (t('Налаштування програми'), () => Geolocator.openAppSettings()),
+        (t('Спробувати ще раз'), _startGps),
+      ]);
+
   StationResult? get _result {
     final p = _point;
     return p == null ? null : _axis.locate(fromWgs84(widget.object.crs, p));
@@ -494,14 +556,22 @@ class _RoadScreenState extends State<RoadScreen> {
     final mid = TextStyle(fontSize: wide ? 26 : 22, fontWeight: FontWeight.w600);
 
     final lines = <Widget>[];
+    final stale = _gpsStale;
+    if (!isKnownCoordSystemId(o.crsId)) {
+      lines.add(_warn(t('Система координат об’єкта («{id}») цій версії програми невідома — положення може бути '
+          'неправильним. Оновіть програму або додайте об’єкт заново.', {'id': o.crsId})));
+    }
     if (_target != null) lines.add(_guideCard(r));
+    if (r != null && _source == _Source.gps && _gpsProblem != null) lines.add(_gpsProblemCard());
+    if (r != null && stale) {
+      final ago = _gpsTime == null ? null : DateTime.now().difference(_gpsTime!).inSeconds;
+      lines.add(_warn(ago == null
+          ? t('GPS: положення застаріле — чекаю нового визначення')
+          : t('GPS втрачено {n} с тому — числа нижче застарілі', {'n': ago})));
+    }
     if (r == null) {
       if (_source == _Source.gps && _gpsProblem != null) {
-        lines.add(ProblemCard(_gpsProblem!, actions: [
-          if (_gpsProblem == gpsOff) (t('Налаштування геолокації'), () => Geolocator.openLocationSettings()),
-          if (_gpsProblem == gpsDenied) (t('Налаштування програми'), () => Geolocator.openAppSettings()),
-          (t('Спробувати ще раз'), _startGps),
-        ]));
+        lines.add(_gpsProblemCard());
       } else {
         lines.add(Text(
           _source == _Source.gps ? t('Шукаю GPS…') : t('Торкніться карти, щоб побачити ПК точки.'),
@@ -510,9 +580,10 @@ class _RoadScreenState extends State<RoadScreen> {
       }
     } else {
       lines.add(FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerLeft,
-          child: Text(formatStation(r.station, o.style), style: big)));
+          child: Text(formatStation(r.station, o.style), style: stale ? big.copyWith(color: Colors.grey) : big)));
       lines.add(const SizedBox(height: 4));
-      lines.add(Text(_offsetText(r.offset), style: mid.copyWith(color: _offsetColor(r.offset))));
+      lines.add(Text(_offsetText(r.offset),
+          style: mid.copyWith(color: stale ? Colors.grey : _offsetColor(r.offset))));
       if (r.beyond) {
         final toStart = r.station < _axis.startStation;
         final d = toStart ? _axis.startStation - r.station : r.station - _axis.endStation;
@@ -535,7 +606,8 @@ class _RoadScreenState extends State<RoadScreen> {
       lines.add(Padding(
         padding: const EdgeInsets.only(top: 6),
         child: FilledButton.tonalIcon(
-          onPressed: () => _addNote(r),
+          // Застаріле положення — позначка лягла б не туди, де людина стоїть.
+          onPressed: stale ? null : () => _addNote(r),
           icon: const Icon(Icons.add_location_alt),
           label: const T('Позначка тут'),
         ),
@@ -709,7 +781,14 @@ class _RoadScreenState extends State<RoadScreen> {
 
   Future<void> _loadNotes() async {
     final l = await noteStore.load(widget.object.id);
-    if (mounted) setState(() => _notes = l);
+    if (!mounted) return;
+    setState(() => _notes = l);
+    final bad = noteStore.unreadable[widget.object.id] ?? 0;
+    if (bad > 0) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          duration: const Duration(seconds: 10),
+          content: Text(t('Не прочиталось позначок: {n}. Файл збережено копією — решта позначок на місці.', {'n': bad}))));
+    }
   }
 
   /// Нова позначка там, де зараз точка (GPS чи вибрана на карті).
@@ -832,8 +911,18 @@ class _RoadScreenState extends State<RoadScreen> {
 
   /// ЦММ об'єкта: читається окремим потоком (сотні тисяч трикутників), там же будується сітка пошуку.
   Future<void> _loadSurface() async {
-    final b = widget.object.surfaceSource == null ? null : await objectStore.loadSurface(widget.object.id);
-    final s = b == null ? null : await compute(_readySurface, b);
+    Surface? s;
+    try {
+      final b = widget.object.surfaceSource == null ? null : await objectStore.loadSurface(widget.object.id);
+      s = b == null ? null : await compute(_readySurface, b);
+    } catch (_) {
+      // Поверхня є в об'єкті, але файл не прочитався — сказати, а не мовчки рахувати без неї.
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: T('ЦММ об’єкта не прочиталась — відмітки беруться з поперечників. Додайте ЦММ знову в «Дані об’єкта».'),
+            duration: const Duration(seconds: 8)));
+      }
+    }
     if (mounted) setState(() => _surface = s);
   }
 

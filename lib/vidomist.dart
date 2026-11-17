@@ -37,7 +37,35 @@ CsvTable parseCsv(Uint8List bytes) {
   final first = lines.first;
   // Крапка з комою — найчастіше там, де десяткова кома (Excel українською, румунською).
   final sep = first.contains(';') ? ';' : (first.contains('\t') ? '\t' : ',');
-  List<String> split(String l) => [for (final c in l.split(sep)) c.trim().replaceAll(RegExp(r'^"|"$'), '')];
+  // Клітинка в лапках може мати роздільник усередині («"бордюр, ліворуч"», «"102,35"» при комі-роздільнику) —
+  // ділити лише поза лапками; "" у лапках — сама лапка.
+  List<String> split(String l) {
+    final out = <String>[];
+    final cur = StringBuffer();
+    var quoted = false;
+    for (var i = 0; i < l.length; i++) {
+      final ch = l[i];
+      if (quoted) {
+        if (ch == '"' && i + 1 < l.length && l[i + 1] == '"') {
+          cur.write('"');
+          i++;
+        } else if (ch == '"') {
+          quoted = false;
+        } else {
+          cur.write(ch);
+        }
+      } else if (ch == '"') {
+        quoted = true;
+      } else if (ch == sep) {
+        out.add(cur.toString().trim());
+        cur.clear();
+      } else {
+        cur.write(ch);
+      }
+    }
+    out.add(cur.toString().trim());
+    return out;
+  }
   final cells = [for (final l in lines) split(l)];
   final hasHeader = cells.first.any((c) => c.isNotEmpty && _number(c) == null && parseChainageLabel(c) == null);
   final width = cells.fold(0, (a, r) => r.length > a ? r.length : a);

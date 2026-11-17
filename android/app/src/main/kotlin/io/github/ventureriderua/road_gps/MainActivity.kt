@@ -41,6 +41,19 @@ class MainActivity : FlutterActivity() {
             }
             result.success(null)
         }
+        // Екран траси відкрито — не гасити екран (людина дивиться на ПК, а не торкається телефона).
+        MethodChannel(messenger, "road_gps/screen").setMethodCallHandler { call, result ->
+            if (call.method != "keepOn") {
+                result.notImplemented()
+                return@setMethodCallHandler
+            }
+            if (call.arguments == true) {
+                window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            } else {
+                window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            }
+            result.success(null)
+        }
         // Надіслати файл у конкретну програму (Telegram, WhatsApp, диск) чи в поштову.
         MethodChannel(messenger, "road_gps/send").setMethodCallHandler { call, result ->
             when (call.method) {

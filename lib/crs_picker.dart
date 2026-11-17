@@ -316,6 +316,15 @@ class _CalibrationScreenState extends State<CalibrationScreen> {
                   'Креслення в міліметрах чи сантиметрах — попросіть проєктанта зберегти в метрах.',
                   'Якщо масштаб справді такий (умовне креслення), можна продовжити — програма його врахує.',
                 ])),
+          if (cal.mirrored)
+            Text(t('Осі креслення переставлені (X — північ, Y — схід) — програма це врахувала.'),
+                style: const TextStyle(color: Colors.black54)),
+          if (!cal.sideChecked)
+            const ProblemCard(Problem(Severity.warning, 'Бік дороги не перевірено: усі точки на одній лінії',
+                fixes: [
+                  'Додайте точку збоку від осі (кромка, бордюр, кут будівлі) — тоді програма перевірить, '
+                      'чи не переплутані ліво й право.',
+                ])),
           if (cal.rms > 5)
             const ProblemCard(Problem(Severity.warning, 'Точки не узгоджуються між собою (похибка понад 5 м)',
                 fixes: [

@@ -70,3 +70,30 @@ Future<void> showProblemDialog(BuildContext context, Problem p) => showDialog(
         actions: [TextButton(onPressed: () => Navigator.pop(c), child: const T('Зрозуміло'))],
       ),
     );
+
+/// Екран з ручною роботою (обведення, точки прив'язки): «назад», поки зроблене не збережено, спершу питає.
+/// [dirty] — чи є що втратити зараз. Збереження закриває екран своїм Navigator.pop — його це не зупиняє.
+Widget leaveGuard({required bool Function() dirty, required Widget child}) => Builder(
+      builder: (context) => PopScope(
+        canPop: false,
+        onPopInvokedWithResult: (didPop, _) async {
+          if (didPop) return;
+          if (dirty()) {
+            final go = await showDialog<bool>(
+              context: context,
+              builder: (c) => AlertDialog(
+                title: const T('Вийти без збереження?'),
+                content: const T('Зроблене на цьому екрані не збережеться.'),
+                actions: [
+                  TextButton(onPressed: () => Navigator.pop(c, false), child: const T('Залишитись')),
+                  FilledButton(onPressed: () => Navigator.pop(c, true), child: const T('Вийти')),
+                ],
+              ),
+            );
+            if (go != true) return;
+          }
+          if (context.mounted) Navigator.of(context).pop();
+        },
+        child: child,
+      ),
+    );

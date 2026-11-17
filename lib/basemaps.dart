@@ -346,6 +346,9 @@ class BasemapStore {
     try {
       return [for (final j in jsonDecode(await f.readAsString()) as List) Basemap.fromJson(j as Map<String, dynamic>)];
     } catch (_) {
+      // Пошкоджений список: відкласти його (index.json.bad), щоб наступне додавання не затерло — інакше
+      // завантажені карти лишились би на диску невидимими. Самі файли карт у теці цілі.
+      await f.rename('${f.path}.bad').catchError((_) => f);
       return [];
     }
   }
@@ -353,7 +356,7 @@ class BasemapStore {
   Future<void> _save(List<Basemap> all) async {
     final f = await _index();
     final tmp = File('${f.path}.tmp');
-    await tmp.writeAsString(jsonEncode([for (final b in all) b.toJson()]));
+    await tmp.writeAsString(jsonEncode([for (final b in all) b.toJson()]), flush: true);
     await tmp.rename(f.path);
   }
 

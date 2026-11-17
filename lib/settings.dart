@@ -59,6 +59,6 @@ Future<void> saveSettings() async {
   if (kIsWeb) return;
   final f = await _file();
   final tmp = File('${f.path}.tmp');
-  await tmp.writeAsString(jsonEncode(settings.toJson()));
+  await tmp.writeAsString(jsonEncode(settings.toJson()), flush: true);
   await tmp.rename(f.path);
 }

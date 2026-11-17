@@ -65,7 +65,9 @@ class _XsDrawingScreenState extends State<XsDrawingScreen> {
         }
       });
     } on DxfException catch (e) {
-      setState(() => _error = e.problem);
+      if (mounted) setState(() => _error = e.problem);
+    } catch (e) {
+      if (mounted) setState(() => _error = Problem(Severity.error, 'Креслення поперечників не прочиталось', detail: '$e'));
     }
   }
 

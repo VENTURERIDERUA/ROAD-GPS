@@ -119,6 +119,20 @@ void main() {
     expect(pack.files.keys, containsAll(['a_1.jpg', 'a_2.jpg']));
   });
 
+  test('чужий ZIP: імена файлів зі шляхом («../») відкидаються', () {
+    final n = at('a', 100, 2, photos: ['../інший/notes.json', 'ok.jpg']);
+    final json = utf8.encode(jsonEncode({'object': 'X', 'crs': '', 'notes': [n.toJson()]}));
+    final zip = Archive()
+      ..addFile(ArchiveFile(notesJsonName, json.length, json))
+      ..addFile(ArchiveFile('фото/../інший/notes.json', 1, [1]))
+      ..addFile(ArchiveFile('фото/ok.jpg', 1, [2]));
+    final pack = readNotesZip(Uint8List.fromList(ZipEncoder().encode(zip)))!;
+    expect(pack.files.keys, ['ok.jpg']);
+    expect(pack.notes.single.photos, ['ok.jpg']);
+    expect(safeFileName('a_1.jpg'), isTrue);
+    expect(safeFileName(r'..\x.jpg'), isFalse);
+  });
+
   test('текст голосу (Whisper на комп’ютері): колонка «Голос — текст» і назад у програму', () async {
     final n = at('a', 100, 2)
       ..audios.addAll(['a_1.m4a', 'a_2.m4a'])

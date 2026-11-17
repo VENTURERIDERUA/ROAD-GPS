@@ -341,6 +341,53 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
     if (yes == true) setState(() => from.remove(name));
   }
 
+  /// Чи є що втратити, якщо вийти без «Зберегти»: нові фото й записи або змінені поля. Нова позначка, у якій
+  /// нічого не вписано й не знято, — не втрата (передумали ставити).
+  bool get _dirty {
+    if (_added.isNotEmpty || _recStart != null) return true;
+    final to = _to.text.trim(), was = n.toStation == null ? '' : formatStation(n.toStation!, widget.object.style);
+    if (widget.isNew) return _text.text.trim().isNotEmpty || _sample.text.trim().isNotEmpty || _linear;
+    bool same(List<String> a, List<String> b) => a.length == b.length && a.every(b.contains);
+    return _text.text.trim() != n.text.trim() ||
+        _kind != n.kind ||
+        (_isDefect && (_status ?? NoteStatus.open) != (n.status ?? NoteStatus.open)) ||
+        _linear != (n.toStation != null) ||
+        (_linear && to != was) ||
+        _sample.text.trim() != (n.sampleNo ?? '') ||
+        !same(_photos, n.photos) ||
+        !same(_after, n.photosAfter) ||
+        !same(_audios, n.audios);
+  }
+
+  /// «Назад» з незбереженим — спитати. Вийти без збереження — прибрати щойно зроблені фото й записи
+  /// (це робить PopScope, коли екран закрито без результату true).
+  Future<void> _askLeave() async {
+    if (!_dirty) {
+      Navigator.of(context).pop();
+      return;
+    }
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const T('Позначку не збережено'),
+        content: const T('Зберегти її перед виходом? Без збереження зникнуть і щойно зроблені фото й записи.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c), child: const T('Скасувати')),
+          TextButton(onPressed: () => Navigator.pop(c, 'drop'), child: const T('Не зберігати')),
+          FilledButton(onPressed: () => Navigator.pop(c, 'save'), child: const T('Зберегти')),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    if (choice == 'save') {
+      if (_recStart != null) await _stopRecord();
+      await _save();
+    } else if (choice == 'drop') {
+      if (_recStart != null) await _stopRecord();
+      if (mounted) Navigator.of(context).pop();
+    }
+  }
+
   /// Вихід без збереження — прибрати щойно зроблені фото й записи, щоб не лишались «сиротами».
   Future<void> _discard() async {
     for (final p in _added) {
@@ -422,8 +469,14 @@ class _NoteEditScreenState extends State<NoteEditScreen> {
     final templates = [...?noteTemplates[o.work]?[_kind]];
     final to = parseStationInput(_to.text);
     return PopScope(
+      // «Назад» (жест чи стрілка) спершу питає, якщо є незбережене (_askLeave); екран закривається вже звідти.
+      canPop: false,
       onPopInvokedWithResult: (didPop, result) {
-        if (didPop && result != true) _discard();
+        if (!didPop) {
+          _askLeave();
+        } else if (result != true) {
+          _discard();
+        }
       },
       child: Scaffold(
         appBar: AppBar(

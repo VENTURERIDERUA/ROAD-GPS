@@ -162,6 +162,9 @@ class _XsScanScreenState extends State<XsScanScreen> {
         _hScale.text = h.round().toString();
         _vScale.text = v.round().toString();
         _scaleNote = t('з напису на аркуші');
+      } else if (_hScale.text.isNotEmpty || _vScale.text.isNotEmpty) {
+        // На цій сторінці напису масштабу немає: у полях лишились числа з попередньої — сказати про це.
+        _scaleNote = t('з попередньої сторінки — перевірте');
       }
       _resetSection();
       _pk = _labels.firstOrNull?.station;
@@ -260,14 +263,18 @@ class _XsScanScreenState extends State<XsScanScreen> {
     showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (c) => AlertDialog(
-        title: const T('Беру поперечники'),
-        content: Row(children: [
-          const CircularProgressIndicator(),
-          const SizedBox(width: 16),
-          Expanded(child: ValueListenableBuilder<String>(valueListenable: progress, builder: (_, v, _) => Text(v))),
-        ]),
-        actions: [TextButton(onPressed: () => cancel = true, child: const T('Скасувати'))],
+      // «Назад» не закриває вікно: інакше в кінці закрився б сам екран з усім обведеним.
+      builder: (c) => PopScope(
+        canPop: false,
+        child: AlertDialog(
+          title: const T('Беру поперечники'),
+          content: Row(children: [
+            const CircularProgressIndicator(),
+            const SizedBox(width: 16),
+            Expanded(child: ValueListenableBuilder<String>(valueListenable: progress, builder: (_, v, _) => Text(v))),
+          ]),
+          actions: [TextButton(onPressed: () => cancel = true, child: const T('Скасувати'))],
+        ),
       ),
     );
     final found = <FoundSection>[];
@@ -296,9 +303,17 @@ class _XsScanScreenState extends State<XsScanScreen> {
         ];
         found.addAll(await compute(sectionsOnPageOf, (v.$1, sheetNumbers(chars), rgb, labels)));
       }
-    } finally {
+    } catch (e) {
       if (mounted) Navigator.of(context).pop();
+      if (mounted) {
+        await showProblemDialog(context,
+            Problem(Severity.error, 'Не вдалося взяти поперечники з PDF', detail: '$e', fixes: const [
+              'Спробуйте ще раз; якщо повторюється — обведіть поперечники вручну.',
+            ]));
+      }
+      return;
     }
+    if (mounted) Navigator.of(context).pop();
     if (!mounted || cancel) return;
     final byPk = {for (final f in found) f.$1: f};
     final list = byPk.values.toList()..sort((a, b) => a.$1.compareTo(b.$1));
@@ -571,7 +586,10 @@ class _XsScanScreenState extends State<XsScanScreen> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      leaveGuard(dirty: () => _done.isNotEmpty || _calib.isNotEmpty, child: Builder(builder: _content));
+
+  Widget _content(BuildContext context) {
     final im = _img;
     return Scaffold(
       appBar: AppBar(

@@ -17,7 +17,7 @@ import 'package:path_provider/path_provider.dart';
 const osmUrl = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 
 /// Своє, впізнаване ім'я програми — так вимагають правила OSM.
-const osmUserAgent = 'ROAD-GPS/0.4 (io.github.ventureriderua.road_gps; Android)';
+const osmUserAgent = 'ROAD-GPS/1.0.1 (io.github.ventureriderua.road_gps; Android)';
 
 /// Скільки плитка вважається свіжою за заголовками відповіді; без них — 7 днів.
 Duration freshFor(Map<String, String> headers, {DateTime? now}) {

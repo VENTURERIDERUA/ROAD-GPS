@@ -199,6 +199,11 @@ String crsName(CoordSystem c) {
 /// Країна чи група системи мовою інтерфейсу.
 String crsGroup(CoordSystem c) => t(c.group);
 
+/// Чи знає ця версія програми систему з таким кодом (об'єкт з новішої версії міг принести невідомий).
+bool isKnownCoordSystemId(String id) =>
+    id.startsWith('calib:') || RegExp(r'^utm(\d{1,2})$').hasMatch(id) || coordSystems.any((c) => c.id == id);
+
+/// Система за кодом; невідомий код — Stereo 70 (екран траси тоді попереджає: [isKnownCoordSystemId]).
 CoordSystem coordSystemById(String id) {
   if (id.startsWith('calib:')) return _calibFromId(id);
   final utm = RegExp(r'^utm(\d{1,2})$').firstMatch(id);
@@ -213,6 +218,8 @@ proj4.Projection _projOf(CoordSystem c) => _cache[c.proj] ??= proj4.Projection.p
 /// Точка креслення (X — схід, Y — північ) → широта/довгота WGS84.
 LatLng toWgs84(CoordSystem c, Vec p) {
   final h = c.helmert;
+  // П'яте число калібрування — креслення віддзеркалене (X — північ, Y — схід): спершу переставити.
+  if (h != null && h.length > 4 && h[4] != 0) p = Vec(p.y, p.x);
   final q = h == null ? p : Vec(h[0] * p.x - h[1] * p.y + h[2], h[1] * p.x + h[0] * p.y + h[3]);
   final r = _projOf(c).transform(_wgs84, proj4.Point(x: q.x, y: q.y));
   return LatLng(r.y, r.x);
@@ -225,7 +232,8 @@ Vec fromWgs84(CoordSystem c, LatLng p) {
   if (h == null) return Vec(r.x, r.y);
   final det = h[0] * h[0] + h[1] * h[1];
   final dx = r.x - h[2], dy = r.y - h[3];
-  return Vec((h[0] * dx + h[1] * dy) / det, (-h[1] * dx + h[0] * dy) / det);
+  final v = Vec((h[0] * dx + h[1] * dy) / det, (-h[1] * dx + h[0] * dy) / det);
+  return h.length > 4 && h[4] != 0 ? Vec(v.y, v.x) : v;
 }
 
 /// Чи потрапляє вісь у країну системи: як є, з переставленими X/Y, чи ніяк.
@@ -234,6 +242,8 @@ Vec fromWgs84(CoordSystem c, LatLng p) {
 enum Placement { ok, swapped, outside }
 
 Placement checkPlacement(CoordSystem c, List<Segment> segs) {
+  // Осі ще немає (прив'язка скану) — перевіряти нічого, система така, як вибрали.
+  if (segs.isEmpty) return Placement.ok;
   final probe = [segs.first.start, segs.last.end];
   bool inside(Vec p) {
     try {
@@ -263,7 +273,14 @@ class Calibration {
   final CoordSystem system;
   final List<double> residuals;
   final double scale, rotationDeg;
-  const Calibration(this.system, this.residuals, this.scale, this.rotationDeg);
+
+  /// Чи перевірено, що ліво й право не переплутані: потрібні 3+ точки не на одній лінії.
+  final bool sideChecked;
+
+  /// Креслення віддзеркалене (X — північ, Y — схід) — враховано перестановкою.
+  final bool mirrored;
+  const Calibration(this.system, this.residuals, this.scale, this.rotationDeg,
+      {this.sideChecked = false, this.mirrored = false});
 
   /// Середньоквадратична похибка, м (з двох точок — 0: перевірити нічим).
   double get rms => residuals.isEmpty
@@ -280,6 +297,48 @@ Calibration fitCalibration(List<(Vec, LatLng)> pairs) {
   final src = [for (final p in pairs) p.$1];
   final dst = [for (final p in pairs) fromWgs84(base, p.$2)];
   final n = pairs.length;
+  // Дві точки чи всі на одній лінії лягають і на звичайне, і на віддзеркалене креслення однаково точно:
+  // бік дороги (ліво / право) так не перевірити.
+  final side = n >= 3 && !_collinear(src);
+  final plain = _fitSimilarity(src, dst);
+  var mirrored = false;
+  var (h, residuals, rms) = plain;
+  if (side) {
+    final m = _fitSimilarity([for (final v in src) Vec(v.y, v.x)], dst);
+    if (m.$3 < rms) {
+      (h, residuals, rms) = m;
+      h = [...h, 1];
+      mirrored = true;
+    }
+  }
+  return Calibration(
+    _calibSystem(base, h, n, rms),
+    n < 3 ? <double>[] : residuals,
+    math.sqrt(h[0] * h[0] + h[1] * h[1]),
+    math.atan2(h[1], h[0]) * 180 / math.pi,
+    sideChecked: side,
+    mirrored: mirrored,
+  );
+}
+
+/// Точки креслення лежать (майже) на одній прямій: поперек неї розкид менший за метр чи 2 % довжини.
+bool _collinear(List<Vec> pts) {
+  final n = pts.length;
+  final mx = pts.fold(0.0, (a, p) => a + p.x) / n, my = pts.fold(0.0, (a, p) => a + p.y) / n;
+  var xx = 0.0, yy = 0.0, xy = 0.0;
+  for (final p in pts) {
+    xx += (p.x - mx) * (p.x - mx);
+    yy += (p.y - my) * (p.y - my);
+    xy += (p.x - mx) * (p.y - my);
+  }
+  final half = (xx + yy) / 2, root = math.sqrt(((xx - yy) / 2) * ((xx - yy) / 2) + xy * xy);
+  final across = math.sqrt(math.max(0, half - root) / n), along = math.sqrt((half + root) / n);
+  return across < math.max(1.0, 0.02 * along);
+}
+
+/// Зсув, поворот і масштаб src → dst найменшими квадратами: коефіцієнти, похибка на кожній точці, СКП.
+(List<double>, List<double>, double) _fitSimilarity(List<Vec> src, List<Vec> dst) {
+  final n = src.length;
   final sx = src.fold(0.0, (a, p) => a + p.x) / n, sy = src.fold(0.0, (a, p) => a + p.y) / n;
   final dx = dst.fold(0.0, (a, p) => a + p.x) / n, dy = dst.fold(0.0, (a, p) => a + p.y) / n;
   var num1 = 0.0, num2 = 0.0, den = 0.0;
@@ -292,20 +351,13 @@ Calibration fitCalibration(List<(Vec, LatLng)> pairs) {
   if (den < 1e-6) throw ArgumentError('точки креслення збігаються');
   final a = num1 / den, b = num2 / den;
   final c = dx - a * sx + b * sy, d = dy - b * sx - a * sy;
-  final h = [a, b, c, d];
-  final residuals = n < 3
-      ? <double>[]
-      : [
-          for (var i = 0; i < n; i++)
-            Vec(a * src[i].x - b * src[i].y + c - dst[i].x, b * src[i].x + a * src[i].y + d - dst[i].y).length,
-        ];
-  final rms = residuals.isEmpty ? 0.0 : math.sqrt(residuals.fold(0.0, (s, r) => s + r * r) / n);
-  return Calibration(
-    _calibSystem(base, h, n, rms),
-    residuals,
-    math.sqrt(a * a + b * b),
-    math.atan2(b, a) * 180 / math.pi,
-  );
+  final residuals = [
+    for (var i = 0; i < n; i++)
+      Vec(a * src[i].x - b * src[i].y + c - dst[i].x, b * src[i].x + a * src[i].y + d - dst[i].y).length,
+  ];
+  // З двох точок перевірити нічим — похибку не показуємо (вона завжди 0).
+  final rms = n < 3 ? 0.0 : math.sqrt(residuals.fold(0.0, (s, r) => s + r * r) / n);
+  return ([a, b, c, d], residuals, rms);
 }
 
 CoordSystem _calibSystem(CoordSystem base, List<double> h, int points, double rms) => CoordSystem(

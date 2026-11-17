@@ -117,4 +117,30 @@ void main() {
       await tmp.delete(recursive: true);
     }
   });
+
+  test('сховище позначок: одна зіпсована позначка не ховає решту; файл зберігається копією; запасна .bak', () async {
+    final tmp = await Directory.systemTemp.createTemp('road_gps_notes');
+    try {
+      final s = NoteStore(dir: tmp);
+      await s.saveAll('obj', [note('1', 10, 1, 'перша'), note('2', 20, 1, 'друга')]);
+      await s.saveAll('obj', [note('1', 10, 1, 'перша'), note('2', 20, 1, 'друга'), note('3', 30, 1, 'третя')]);
+      final dir = Directory('${tmp.path}/obj');
+      expect(File('${dir.path}/notes.json.bak').existsSync(), isTrue);
+      // Одна позначка зіпсована (немає обов'язкового поля з місцем).
+      final f = File('${dir.path}/notes.json');
+      final list = jsonDecode(f.readAsStringSync()) as List;
+      (list[1] as Map).remove('at');
+      f.writeAsStringSync(jsonEncode(list));
+      final back = await s.load('obj');
+      expect(back.map((n) => n.id), ['1', '3']);
+      expect(s.unreadable['obj'], 1);
+      expect(dir.listSync().any((e) => e.path.contains('notes.json.broken-')), isTrue);
+      // Файл зовсім не розбирається — береться запасна копія (попередній стан).
+      f.writeAsStringSync('[{"id": "1", обрізано');
+      expect((await s.load('obj')).map((n) => n.id), ['1', '2']);
+      expect(s.unreadable['obj'], 1);
+    } finally {
+      await tmp.delete(recursive: true);
+    }
+  });
 }
